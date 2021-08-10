@@ -1,0 +1,35 @@
+#!/bin/bash
+MISP="https://misp"
+APIKEY="ABCD1234"
+SIGMAI="/home/onionuser/sigmai"
+SIGMAC="/home/onionuser/sigma/tools/sigmac"
+SIGMAPATH="/home/onionuser/sigma"
+SIGMAC="$SIGMAPATH/tools/sigmac"
+SIGMACONFIGPATH="$SIGMAPATH/tools/config"
+SIGMARULES="/home/onionuser/sigmarules"
+ELASTALERTRULES="/opt/so/rules/elastalert/misp"
+CONFIGOPTIONS="-c /home/onionuser/securityonion-baseline.yml"
+BACKENDOPTIONS="--backend-option alert_methods=email --backend-option emails=me@mycompany.com --backend-option keyword_whitelist=source.ip,destination.ip,source.port,destination.port --backend-option keyword_field=.keyword --backend-option analyzed_sub_field_name=.security --backend-option wildcard_use_keyword=false"
+MISP_INSECURE="--misp-insecure"
+MISP_FILTER="--misp-levels 1,2"
+
+# Pre-create these dirs
+mkdir -p "$SIGMARULES"
+mkdir -p "$ELASTALERTRULES"
+
+# Create Sigma rules from MISP
+echo "Creating Sigma rules from MISP events..."
+"$SIGMAI" -t directory --directory-path "$SIGMARULES" -s misp --misp-url "$MISP" --misp-key "$APIKEY" $MISP_FILTER "$MISP_INSECURE"
+
+# Loop through all Sigma rules, convert to Elastalert rules, and split the files
+# Once support is merged into sigmac, csplit usage will be removed.
+echo "Converting MISP Sigma rules to Elastalert rules..."
+cd $ELASTALERTRULES
+for i in $(ls "$SIGMARULES"); do
+        "$SIGMAC" -t elastalert $CONFIGOPTIONS $BACKENDOPTIONS -o "$ELASTALERTRULES/$i" "$SIGMARULES/$i"
+        ID=$(echo "$i" | cut -d"." -f1)
+        csplit -z --prefix "misp_$ID" --suffix-format "_%04d.yml" "$ELASTALERTRULES/$i" "/^alert:/" "{*}" > /dev/null
+        rm -f "$ELASTALERTRULES/$i"
+done
+
+echo "Done!"
